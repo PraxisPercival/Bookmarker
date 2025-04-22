@@ -1,0 +1,4 @@
+sqlite3
+pywin32
+psutil
+python-dateutil 
