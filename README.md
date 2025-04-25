@@ -1,62 +1,55 @@
-# Cross-Browser Bookmark Tracker
+# Bookmarker
 
-This program allows you to track and manage bookmarks across multiple web browsers (Chrome, Firefox, and Edge) on your Windows machine.
+A Flask-based web application for managing bookmarks across different browsers.
 
 ## Features
 
-- Automatically detects and imports bookmarks from Chrome, Firefox, and Edge
-- Maintains a centralized SQLite database of all bookmarks
-- Tracks when bookmarks were added and last updated
-- Preserves folder structure from each browser
-- Simple command-line interface for managing bookmarks
+- User authentication (login, register, logout)
+- Bookmark management (add, view, delete)
+- Browser detection
+- RESTful API endpoints
 
-## Requirements
+## Setup
 
-- Python 3.6 or higher
-- Windows operating system
-- One or more of the following browsers installed:
-  - Google Chrome
-  - Mozilla Firefox
-  - Microsoft Edge
-
-## Installation
-
-1. Clone or download this repository
-2. Install the required dependencies:
+1. Clone the repository
+2. Create a virtual environment:
+   ```
+   python -m venv venv
+   ```
+3. Activate the virtual environment:
+   - Windows: `venv\Scripts\activate`
+   - Unix/MacOS: `source venv/bin/activate`
+4. Install dependencies:
    ```
    pip install -r requirements.txt
    ```
-
-## Usage
-
-1. Run the program:
+5. Run the application:
    ```
-   python bookmark_tracker.py
+   python run.py
    ```
 
-2. Use the menu options:
-   - Option 1: Update bookmarks (scans all browsers and updates the database)
-   - Option 2: View all bookmarks (displays all bookmarks from all browsers)
-   - Option 3: Exit the program
+## API Documentation
 
-## How It Works
+The application provides the following API endpoints:
 
-The program:
-1. Scans the default locations for each browser's bookmark files
-2. Parses the bookmark data from each browser's specific format
-3. Stores all bookmarks in a SQLite database
-4. Maintains the folder structure from each browser
-5. Tracks when bookmarks were added and last updated
+### Authentication
+- `POST /api/login` - User login
+- `POST /api/logout` - User logout
+- `POST /api/register` - Register new user
 
-## Notes
+### Bookmarks
+- `GET /api/bookmarks` - Get all bookmarks
+- `POST /api/bookmarks` - Add new bookmark
+- `DELETE /api/bookmarks/<id>` - Delete bookmark
 
-- The program requires read access to your browser profile directories
-- Bookmarks are stored in a local SQLite database file (`bookmarks.db`)
-- The program will automatically create the database file when first run
-- Each time you update bookmarks, it will sync any changes from your browsers
+### Browsers
+- `GET /api/browsers` - Get detected browsers
 
-## Security
+For detailed API documentation, visit `/api/docs` endpoint.
 
-- All data is stored locally on your machine
-- The program only reads bookmark data, it does not modify your browser bookmarks
-- No data is sent over the network
+## Security Notes
+
+- Change the `SECRET_KEY` in production
+- Use HTTPS in production
+- Implement proper password hashing
+- Validate all user inputs

@@ -1,0 +1,292 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Bookmarker{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>Your Bookmarks</h2>
+            <div>
+                <button class="btn btn-info me-2" onclick="viewBrowsers()">View Browsers</button>
+                <button class="btn btn-success me-2" onclick="importBookmarks()">Import Bookmarks</button>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Add New Bookmark</h5>
+            </div>
+            <div class="card-body">
+                <form id="addBookmarkForm">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <input type="url" class="form-control" id="bookmarkUrl" placeholder="Enter URL" required>
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-primary w-100">Add Bookmark</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Bookmark List</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>URL</th>
+                                <th>Date Added</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bookmarksList">
+                            <!-- Bookmarks will be loaded here via JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Browsers Modal -->
+<div class="modal fade" id="browsersModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Detected Browsers</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="browsersList">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+async function viewBrowsers() {
+    const browsersList = document.getElementById('browsersList');
+    browsersList.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    `;
+    
+    const modal = new bootstrap.Modal(document.getElementById('browsersModal'));
+    modal.show();
+    
+    try {
+        const response = await fetch('/api/browsers');
+        if (!response.ok) {
+            throw new Error('Failed to fetch browsers');
+        }
+        const browsers = await response.json();
+        
+        if (browsers.length === 0) {
+            browsersList.innerHTML = '<div class="alert alert-info">No browsers detected</div>';
+            return;
+        }
+        
+        browsersList.innerHTML = browsers.map(browser => `
+            <div class="card mb-2">
+                <div class="card-body">
+                    <h5 class="card-title">${browser.name}</h5>
+                    <p class="card-text">Version: ${browser.version}</p>
+                    <button class="btn btn-primary btn-sm" onclick="importFromBrowser('${browser.name}')">
+                        Import Bookmarks
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        browsersList.innerHTML = '<div class="alert alert-danger">Error loading browsers</div>';
+    }
+}
+
+async function importFromBrowser(browserName) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = `
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+        Importing...
+    `;
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ browser: browserName })
+        });
+        
+        if (response.ok) {
+            button.innerHTML = '<i class="bi bi-check-circle"></i> Imported';
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }, 2000);
+            loadBookmarks();
+        } else {
+            throw new Error('Import failed');
+        }
+    } catch (error) {
+        button.innerHTML = '<i class="bi bi-x-circle"></i> Failed';
+        setTimeout(() => {
+            button.innerHTML = originalText;
+            button.disabled = false;
+        }, 2000);
+    }
+}
+
+function importBookmarks() {
+    viewBrowsers();
+}
+
+// Load bookmarks when the page loads
+document.addEventListener('DOMContentLoaded', loadBookmarks);
+
+async function loadBookmarks() {
+    const bookmarksList = document.getElementById('bookmarksList');
+    bookmarksList.innerHTML = `
+        <tr>
+            <td colspan="4" class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </td>
+        </tr>
+    `;
+    
+    try {
+        const response = await fetch('/api/bookmarks');
+        if (!response.ok) {
+            throw new Error('Failed to fetch bookmarks');
+        }
+        const bookmarks = await response.json();
+        
+        if (bookmarks.length === 0) {
+            bookmarksList.innerHTML = `
+                <tr>
+                    <td colspan="4" class="text-center">No bookmarks found</td>
+                </tr>
+            `;
+            return;
+        }
+        
+        bookmarksList.innerHTML = bookmarks.map(bookmark => `
+            <tr>
+                <td>${bookmark.title}</td>
+                <td><a href="${bookmark.url}" target="_blank">${bookmark.url}</a></td>
+                <td>${new Date(bookmark.date_added).toLocaleDateString()}</td>
+                <td>
+                    <button class="btn btn-danger btn-sm" onclick="deleteBookmark(${bookmark.id})">
+                        Delete
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (error) {
+        bookmarksList.innerHTML = `
+            <tr>
+                <td colspan="4" class="text-center text-danger">Error loading bookmarks</td>
+            </tr>
+        `;
+    }
+}
+
+document.getElementById('addBookmarkForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const url = document.getElementById('bookmarkUrl').value;
+    const submitButton = this.querySelector('button[type="submit"]');
+    const originalText = submitButton.innerHTML;
+    
+    submitButton.innerHTML = `
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+        Adding...
+    `;
+    submitButton.disabled = true;
+    
+    try {
+        const response = await fetch('/api/bookmarks', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ url })
+        });
+        
+        if (response.ok) {
+            document.getElementById('bookmarkUrl').value = '';
+            submitButton.innerHTML = '<i class="bi bi-check-circle"></i> Added';
+            setTimeout(() => {
+                submitButton.innerHTML = originalText;
+                submitButton.disabled = false;
+            }, 2000);
+            loadBookmarks();
+        } else {
+            throw new Error('Failed to add bookmark');
+        }
+    } catch (error) {
+        submitButton.innerHTML = '<i class="bi bi-x-circle"></i> Failed';
+        setTimeout(() => {
+            submitButton.innerHTML = originalText;
+            submitButton.disabled = false;
+        }, 2000);
+    }
+});
+
+async function deleteBookmark(id) {
+    if (!confirm('Are you sure you want to delete this bookmark?')) {
+        return;
+    }
+    
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = `
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+        Deleting...
+    `;
+    button.disabled = true;
+    
+    try {
+        const response = await fetch(`/api/bookmarks/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            button.innerHTML = '<i class="bi bi-check-circle"></i> Deleted';
+            setTimeout(() => {
+                loadBookmarks();
+            }, 1000);
+        } else {
+            throw new Error('Failed to delete bookmark');
+        }
+    } catch (error) {
+        button.innerHTML = '<i class="bi bi-x-circle"></i> Failed';
+        setTimeout(() => {
+            button.innerHTML = originalText;
+            button.disabled = false;
+        }, 2000);
+    }
+}
+</script>
+{% endblock %} 

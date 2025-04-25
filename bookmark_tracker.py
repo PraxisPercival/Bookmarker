@@ -6,6 +6,7 @@ from pathlib import Path
 import csv
 import ctypes
 import sys
+import platform
 
 def is_admin():
     try:
@@ -18,27 +19,149 @@ SQLDB_KEY = ""
 class BookmarkTracker:
     def __init__(self):
         self.db_path = "bookmarks.db"
-        self.initialize_database()
+        self.init_db()
         
-    def initialize_database(self):
+    def get_db(self):
+        db = sqlite3.connect(self.db_path)
+        db.row_factory = sqlite3.Row
+        return db
+
+    def init_db(self):
         """Initialize SQLite database for storing bookmarks"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        db = self.get_db()
+        cursor = db.cursor()
         
+        # Create bookmarks table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS bookmarks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT,
-                url TEXT,
-                browser TEXT,
-                folder TEXT,
-                date_added TIMESTAMP,
-                last_updated TIMESTAMP
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users (id)
             )
         ''')
         
-        conn.commit()
-        conn.close()
+        db.commit()
+        db.close()
+
+    def get_bookmarks(self):
+        db = self.get_db()
+        cursor = db.cursor()
+        cursor.execute('SELECT * FROM bookmarks ORDER BY date_added DESC')
+        bookmarks = cursor.fetchall()
+        db.close()
+        return [dict(bookmark) for bookmark in bookmarks]
+
+    def add_bookmark(self, url, title=None, user_id=None):
+        if not title:
+            title = url
+        
+        db = self.get_db()
+        cursor = db.cursor()
+        cursor.execute('''
+            INSERT INTO bookmarks (title, url, user_id)
+            VALUES (?, ?, ?)
+        ''', (title, url, user_id))
+        db.commit()
+        db.close()
+
+    def delete_bookmark(self, bookmark_id):
+        """Delete a bookmark from the database"""
+        db = self.get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('DELETE FROM bookmarks WHERE id = ?', (bookmark_id,))
+        
+        if cursor.rowcount > 0:
+            print("Bookmark deleted successfully!")
+        else:
+            print("Bookmark not found!")
+            
+        db.commit()
+        db.close()
+
+    def get_browsers(self):
+        browsers = []
+        system = platform.system()
+        
+        if system == 'Windows':
+            # Chrome
+            chrome_path = os.path.expanduser('~\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Bookmarks')
+            if os.path.exists(chrome_path):
+                browsers.append({'name': 'Chrome', 'version': 'Latest'})
+            
+            # Firefox
+            firefox_path = os.path.expanduser('~\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles')
+            if os.path.exists(firefox_path):
+                browsers.append({'name': 'Firefox', 'version': 'Latest'})
+            
+            # Edge
+            edge_path = os.path.expanduser('~\\AppData\\Local\\Microsoft\\Edge\\User Data\\Default\\Bookmarks')
+            if os.path.exists(edge_path):
+                browsers.append({'name': 'Edge', 'version': 'Latest'})
+        
+        return browsers
+
+    def import_from_browser(self, browser_name):
+        system = platform.system()
+        bookmarks = []
+        
+        if system == 'Windows':
+            if browser_name == 'Chrome':
+                bookmarks = self._import_chrome_bookmarks()
+            elif browser_name == 'Firefox':
+                bookmarks = self._import_firefox_bookmarks()
+            elif browser_name == 'Edge':
+                bookmarks = self._import_edge_bookmarks()
+        
+        return bookmarks
+
+    def _import_chrome_bookmarks(self):
+        bookmarks = []
+        chrome_path = os.path.expanduser('~\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Bookmarks')
+        
+        if os.path.exists(chrome_path):
+            with open(chrome_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                bookmarks = self._parse_chrome_bookmarks(data)
+        
+        return bookmarks
+
+    def _parse_chrome_bookmarks(self, data, bookmarks=None):
+        if bookmarks is None:
+            bookmarks = []
+        
+        if 'children' in data:
+            for child in data['children']:
+                if child['type'] == 'url':
+                    bookmarks.append({
+                        'title': child['name'],
+                        'url': child['url'],
+                        'date_added': datetime.now().isoformat()
+                    })
+                elif child['type'] == 'folder':
+                    self._parse_chrome_bookmarks(child, bookmarks)
+        
+        return bookmarks
+
+    def _import_firefox_bookmarks(self):
+        # Firefox bookmarks are stored in a SQLite database
+        # This is a simplified version - in a real app, you'd need to handle the Firefox profile selection
+        return []
+
+    def _import_edge_bookmarks(self):
+        # Edge uses the same format as Chrome
+        bookmarks = []
+        edge_path = os.path.expanduser('~\\AppData\\Local\\Microsoft\\Edge\\User Data\\Default\\Bookmarks')
+        
+        if os.path.exists(edge_path):
+            with open(edge_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                bookmarks = self._parse_chrome_bookmarks(data)
+        
+        return bookmarks
 
     def get_installed_browsers(self):
         """Detect which browsers are installed on the system"""
@@ -61,45 +184,16 @@ class BookmarkTracker:
             
         return browsers
 
-    def add_bookmark(self, title, url, browser, folder=""):
-        """Add a new bookmark to the database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO bookmarks (title, url, browser, folder, date_added, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (title, url, browser, folder, datetime.now().isoformat(), datetime.now().isoformat()))
-        
-        conn.commit()
-        conn.close()
-        print(f"Bookmark '{title}' added successfully!")
-
-    def delete_bookmark(self, bookmark_id):
-        """Delete a bookmark from the database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('DELETE FROM bookmarks WHERE id = ?', (bookmark_id,))
-        
-        if cursor.rowcount > 0:
-            print("Bookmark deleted successfully!")
-        else:
-            print("Bookmark not found!")
-            
-        conn.commit()
-        conn.close()
-
     def get_bookmarks_by_browser(self, browser):
         """Retrieve bookmarks for a specific browser"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT id, title, url, folder, date_added, last_updated
+            SELECT id, title, url, date_added
             FROM bookmarks
             WHERE browser = ?
-            ORDER BY folder, title
+            ORDER BY date_added DESC
         ''', (browser,))
         
         bookmarks = []
@@ -108,9 +202,7 @@ class BookmarkTracker:
                 'id': row[0],
                 'title': row[1],
                 'url': row[2],
-                'folder': row[3],
-                'date_added': row[4],
-                'last_updated': row[5]
+                'date_added': row[3]
             })
         
         conn.close()
@@ -121,20 +213,17 @@ class BookmarkTracker:
         if filename is None:
             filename = f"bookmarks_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{format}"
             
-        bookmarks = self.get_all_bookmarks()
+        bookmarks = self.get_bookmarks()
         
         if format.lower() == 'csv':
             with open(filename, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Title', 'URL', 'Browser', 'Folder', 'Date Added', 'Last Updated'])
+                writer.writerow(['Title', 'URL', 'Date Added'])
                 for bookmark in bookmarks:
                     writer.writerow([
                         bookmark['title'],
                         bookmark['url'],
-                        bookmark['browser'],
-                        bookmark['folder'],
-                        bookmark['date_added'],
-                        bookmark['last_updated']
+                        bookmark['date_added']
                     ])
         elif format.lower() == 'json':
             with open(filename, 'w', encoding='utf-8') as f:
@@ -145,125 +234,12 @@ class BookmarkTracker:
             
         print(f"Bookmarks exported successfully to {filename}")
 
-    def get_chrome_bookmarks(self):
-        """Extract bookmarks from Chrome"""
-        try:
-            # Get Chrome bookmarks file path
-            local_app_data = os.getenv('LOCALAPPDATA')
-            chrome_path = os.path.join(local_app_data, 'Google', 'Chrome', 'User Data', 'Default', 'Bookmarks')
-            
-            if os.path.exists(chrome_path):
-                with open(chrome_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return self._parse_chrome_bookmarks(data, 'Chrome')
-        except Exception as e:
-            print(f"Error reading Chrome bookmarks: {e}")
-        return []
-
-    def get_firefox_bookmarks(self):
-        """Extract bookmarks from Firefox"""
-        try:
-            # Get Firefox profile path
-            app_data = os.getenv('APPDATA')
-            firefox_path = os.path.join(app_data, 'Mozilla', 'Firefox', 'Profiles')
-            
-            if os.path.exists(firefox_path):
-                # Find the default profile
-                for profile in os.listdir(firefox_path):
-                    if profile.endswith('.default-release'):
-                        places_path = os.path.join(firefox_path, profile, 'places.sqlite')
-                        if os.path.exists(places_path):
-                            return self._parse_firefox_bookmarks(places_path)
-        except Exception as e:
-            print(f"Error reading Firefox bookmarks: {e}")
-        return []
-
-    def get_edge_bookmarks(self):
-        """Extract bookmarks from Microsoft Edge"""
-        try:
-            # Get Edge bookmarks file path
-            local_app_data = os.getenv('LOCALAPPDATA')
-            edge_path = os.path.join(local_app_data, 'Microsoft', 'Edge', 'User Data', 'Default', 'Bookmarks')
-            
-            if os.path.exists(edge_path):
-                with open(edge_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return self._parse_chrome_bookmarks(data, 'Edge')
-        except Exception as e:
-            print(f"Error reading Edge bookmarks: {e}")
-        return []
-
-    def _parse_chrome_bookmarks(self, data, browser_name):
-        """Parse Chrome/Edge bookmarks format"""
-        bookmarks = []
-        
-        def traverse(node, folder=""):
-            if 'children' in node:
-                for child in node['children']:
-                    traverse(child, folder + "/" + node.get('name', ''))
-            elif 'url' in node:
-                bookmarks.append({
-                    'title': node.get('name', ''),
-                    'url': node.get('url', ''),
-                    'browser': browser_name,
-                    'folder': folder,
-                    'date_added': datetime.now().isoformat()
-                })
-        
-        if 'roots' in data:
-            for root in data['roots'].values():
-                traverse(root)
-        
-        return bookmarks
-
-    def _parse_firefox_bookmarks(self, places_path):
-        """Parse Firefox bookmarks from places.sqlite"""
-        bookmarks = []
-        try:
-            conn = sqlite3.connect(places_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT moz_bookmarks.title, moz_places.url, moz_bookmarks.parent
-                FROM moz_bookmarks
-                JOIN moz_places ON moz_bookmarks.fk = moz_places.id
-                WHERE moz_bookmarks.type = 1
-            ''')
-            
-            for row in cursor.fetchall():
-                bookmarks.append({
-                    'title': row[0],
-                    'url': row[1],
-                    'browser': 'Firefox',
-                    'folder': self._get_firefox_folder(cursor, row[2]),
-                    'date_added': datetime.now().isoformat()
-                })
-            
-            conn.close()
-        except Exception as e:
-            print(f"Error parsing Firefox bookmarks: {e}")
-        
-        return bookmarks
-
-    def _get_firefox_folder(self, cursor, folder_id):
-        """Get the full folder path for a Firefox bookmark"""
-        path = []
-        while folder_id != 1:  # 1 is the root folder
-            cursor.execute('SELECT title, parent FROM moz_bookmarks WHERE id = ?', (folder_id,))
-            result = cursor.fetchone()
-            if result:
-                path.insert(0, result[0])
-                folder_id = result[1]
-            else:
-                break
-        return '/'.join(path)
-
     def update_database(self):
         """Update the database with bookmarks from all browsers"""
         all_bookmarks = []
-        all_bookmarks.extend(self.get_chrome_bookmarks())
-        all_bookmarks.extend(self.get_firefox_bookmarks())
-        all_bookmarks.extend(self.get_edge_bookmarks())
+        all_bookmarks.extend(self._import_chrome_bookmarks())
+        all_bookmarks.extend(self._import_firefox_bookmarks())
+        all_bookmarks.extend(self._import_edge_bookmarks())
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -275,26 +251,23 @@ class BookmarkTracker:
             # Check if bookmark already exists
             cursor.execute('''
                 SELECT id FROM bookmarks 
-                WHERE url = ? AND browser = ?
-            ''', (bookmark['url'], bookmark['browser']))
+                WHERE url = ?
+            ''', (bookmark['url'],))
             
             result = cursor.fetchone()
             if result:
                 # Update existing bookmark
                 cursor.execute('''
                     UPDATE bookmarks 
-                    SET title = ?, folder = ?, last_updated = ?
+                    SET title = ?, date_added = ?
                     WHERE id = ?
-                ''', (bookmark['title'], bookmark['folder'], 
-                      datetime.now().isoformat(), result[0]))
+                ''', (bookmark['title'], bookmark['date_added'], result[0]))
             else:
                 # Insert new bookmark
                 cursor.execute('''
-                    INSERT INTO bookmarks (title, url, browser, folder, date_added, last_updated)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (bookmark['title'], bookmark['url'], bookmark['browser'],
-                      bookmark['folder'], bookmark['date_added'],
-                      datetime.now().isoformat()))
+                    INSERT INTO bookmarks (title, url, date_added)
+                    VALUES (?, ?, ?)
+                ''', (bookmark['title'], bookmark['url'], bookmark['date_added']))
         
         conn.commit()
         conn.close()
@@ -305,9 +278,9 @@ class BookmarkTracker:
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT id, title, url, browser, folder, date_added, last_updated
+            SELECT id, title, url, date_added
             FROM bookmarks
-            ORDER BY browser, folder, title
+            ORDER BY date_added DESC
         ''')
         
         bookmarks = []
@@ -316,10 +289,7 @@ class BookmarkTracker:
                 'id': row[0],
                 'title': row[1],
                 'url': row[2],
-                'browser': row[3],
-                'folder': row[4],
-                'date_added': row[5],
-                'last_updated': row[6]
+                'date_added': row[3]
             })
         
         conn.close()
@@ -358,10 +328,7 @@ def main():
                 print(f"\nID: {bookmark['id']}")
                 print(f"Title: {bookmark['title']}")
                 print(f"URL: {bookmark['url']}")
-                print(f"Browser: {bookmark['browser']}")
-                print(f"Folder: {bookmark['folder']}")
                 print(f"Added: {bookmark['date_added']}")
-                print(f"Last Updated: {bookmark['last_updated']}")
                 print("-" * 50)
         elif choice == "3":
             browsers = tracker.get_installed_browsers()
@@ -383,9 +350,7 @@ def main():
                         print(f"\nID: {bookmark['id']}")
                         print(f"Title: {bookmark['title']}")
                         print(f"URL: {bookmark['url']}")
-                        print(f"Folder: {bookmark['folder']}")
                         print(f"Added: {bookmark['date_added']}")
-                        print(f"Last Updated: {bookmark['last_updated']}")
                         print("-" * 50)
                 else:
                     print("Invalid browser selection!")
@@ -407,8 +372,7 @@ def main():
                 if 0 <= browser_index < len(browsers):
                     title = input("Enter bookmark title: ")
                     url = input("Enter bookmark URL: ")
-                    folder = input("Enter folder (optional, press Enter to skip): ")
-                    tracker.add_bookmark(title, url, browsers[browser_index], folder)
+                    tracker.add_bookmark(url, title)
                 else:
                     print("Invalid browser selection!")
             except ValueError:
