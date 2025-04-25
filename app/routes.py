@@ -18,10 +18,4 @@ def dashboard():
 def login_page():
     if 'logged_in' in session:
         return redirect(url_for('main.dashboard'))
-    return render_template('login.html')
-
-@main.route('/register')
-def register_page():
-    if 'logged_in' in session:
-        return redirect(url_for('main.dashboard'))
-    return render_template('register.html') 
+    return render_template('login.html') 
